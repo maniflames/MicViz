@@ -1,5 +1,12 @@
 use portaudio;
 use std::sync::mpsc::*;
+use three;
+
+#[derive(Debug)]
+struct State {
+    sound_values: Vec<f32>,
+    scene_meshes: Vec<three::Mesh>
+}
                                                                                                                                                                         
 fn main() {
     let pa = portaudio::PortAudio::new().expect("Unable to init PortAudio"); 
@@ -24,13 +31,55 @@ fn main() {
     let mut stream = pa.open_non_blocking_stream(input_settings, callback).expect("Unable to create stream"); 
     stream.start().expect("Unable to start stream"); 
 
-    while stream.is_active().unwrap() {
-       while let Ok(audio_buffer) = receiver.try_recv() {
-            print_audio_samples(audio_buffer); 
+    let mut builder = three::Window::builder("A window Imani built"); 
+    builder.fullscreen(true); 
+    let mut win = builder.build(); 
+    win.scene.background = three::Background::Color(0x000000);
+    let mut state = State {
+        sound_values: Vec::new(),
+        scene_meshes: Vec::new()
+    };
+
+    let camera = win.factory.orthographic_camera([0.0, 0.0], 1.0, -1.0 .. 1.0); 
+
+    while win.update() && !win.input.hit(three::KEY_ESCAPE) {
+        update_lines(&mut win, &mut state);
+        win.render(&camera);
+        remove_lines(&mut win, &mut state);
+
+        while let Ok(audio_buffer) = receiver.try_recv() {
+            update_sound_values(&audio_buffer, &mut state); 
        }
     }
 }
 
-fn print_audio_samples(samples: &[f32]) {
-    println!("{:?}", samples);
+fn update_sound_values(samples: &[f32], state: &mut State) {
+   state.sound_values = samples.to_vec(); 
+}
+
+fn update_lines(win: &mut three::window::Window, state: &mut State) {
+    for (index, y_position) in state.sound_values.iter().enumerate() {
+        // sound_values
+        let geometry = three::Geometry::with_vertices(vec![
+            [index as f32 / state.sound_values.len() as f32, y_position.clone(), 0.0].into(),
+            [index as f32 / state.sound_values.len() as f32, -y_position.clone(), 0.0].into()
+        ]);
+
+        let material = three::material::Line {
+            color: 0xFFFFFF,
+            //.. Default::default()
+        };
+
+        let mesh = win.factory.mesh(geometry, material);
+        win.scene.add(&mesh); 
+        state.scene_meshes.push(mesh); 
+    }
+}
+
+fn remove_lines(win: &mut three::window::Window, state: &mut State) {
+    for mesh in &state.scene_meshes {
+        win.scene.remove(&mesh); 
+    }
+
+    state.scene_meshes.clear(); 
 }
