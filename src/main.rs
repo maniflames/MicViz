@@ -59,15 +59,18 @@ fn update_sound_values(samples: &[f32], state: &mut State) {
 
 fn update_lines(win: &mut three::window::Window, state: &mut State) {
     for (index, y_position) in state.sound_values.iter().enumerate() {
-        // sound_values
+        let i = index as f32; 
+        let num_samples = state.sound_values.len() as f32; 
+        let scale = 3.0; 
+        let x_position = (i / (num_samples / scale)) - (0.5 * scale);
+
         let geometry = three::Geometry::with_vertices(vec![
-            [index as f32 / state.sound_values.len() as f32, y_position.clone(), 0.0].into(),
-            [index as f32 / state.sound_values.len() as f32, -y_position.clone(), 0.0].into()
+            [x_position, y_position.clone(), 0.0].into(),
+            [x_position, -y_position.clone(), 0.0].into()
         ]);
 
         let material = three::material::Line {
             color: 0xFFFFFF,
-            //.. Default::default()
         };
 
         let mesh = win.factory.mesh(geometry, material);
