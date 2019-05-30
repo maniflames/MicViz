@@ -61,16 +61,29 @@ fn main() {
 
     let mut history: VecDeque<Vec<f64>> = VecDeque::new(); //aka spectrum_history
     let mut novelty_history: VecDeque<f64> = VecDeque::new(); 
+    let mut normalised_novelty_history: VecDeque<f64> = VecDeque::new(); 
+    let mut garbage_collection: Vec<three::Mesh> = Vec::new(); 
 
-    loop {
+    let mut builder = three::Window::builder("A window Imani built"); 
+    builder.fullscreen(true); 
+    let mut win = builder.build(); 
+    win.scene.background = three::Background::Color(0x000000);
+
+    let camera = win.factory.orthographic_camera([0.0, 0.0], 1.0, -1.0 .. 1.0); 
+
+    while win.update() {
         match receiver.try_recv() {
-            Ok(buffer) => log_buffer(buffer, &mut history, &mut novelty_history), 
+            Ok(buffer) => log_onset(buffer, &mut history, &mut novelty_history, &mut normalised_novelty_history), 
             Err(_err) => ()
         }
-    }    
+        draw_curve(&mut novelty_history, &mut normalised_novelty_history, &mut win, &mut garbage_collection);
+        win.render(&camera); 
+        remove_lines(&mut win, &mut garbage_collection);
+        garbage_collection.clear(); 
+    }  
 }
 
-fn log_buffer(buffer: &[f32], history: &mut VecDeque<Vec<f64>>, novelty_history: &mut VecDeque<f64>) {
+fn log_onset(buffer: &[f32], history: &mut VecDeque<Vec<f64>>, novelty_history: &mut VecDeque<f64>, normalised_novelty_history: &mut VecDeque<f64>) {
     let samples: Vec<f64> = buffer.to_vec().into_iter().map(|sample| sample as f64).collect(); 
     //Fourier Transform
     let spectrum = meyda::get_amp_spectrum(&samples);
@@ -104,35 +117,74 @@ fn log_buffer(buffer: &[f32], history: &mut VecDeque<Vec<f64>>, novelty_history:
     let novelty_point = differentiation.iter().fold(0.0, |sum, difference| sum + difference);
     novelty_history.push_front(novelty_point);
 
-    if novelty_history.len() < 10 {
+    if novelty_history.len() < 250 {
         return
     }
 
     let local_average = novelty_history.iter().fold(0.0, |sum, novelty_point| sum + novelty_point) / (novelty_history.len() as f64);
-    let normalised_novelty_history: VecDeque<f64> = novelty_history.iter().map(|novelty_point| {
+    let novelty_history_loop = novelty_history.clone(); //this is a memory hack and should be fixed dureing refactor
+
+    normalised_novelty_history.clear();
+    for novelty_point in novelty_history_loop {
         let candidate = novelty_point - local_average;
         if candidate < 0.0 {
-            return 0.0;
+            normalised_novelty_history.push_front(0.0);
+            continue;
         }
 
-        return candidate;
-    }).collect();
+        normalised_novelty_history.push_front(candidate);
+    }
 
     //TODO: neglect peaks if they're part of a downward trend in peaks
     //peak picking
-    if normalised_novelty_history[1] > normalised_novelty_history[0] 
-    && normalised_novelty_history[1] > normalised_novelty_history[2] 
-    && normalised_novelty_history[1] > 50.0 //TODO: play around with this treshold
-    {
-        println!("before {:?}", normalised_novelty_history[0]);
-        println!("beat! {:?}", normalised_novelty_history[1]);
-        println!("after {:?}", normalised_novelty_history[2]);
-    }
+    // if normalised_novelty_history[1] > normalised_novelty_history[0] 
+    // && normalised_novelty_history[1] > normalised_novelty_history[2] 
+    // && normalised_novelty_history[1] > 50.0 //TODO: play around with this treshold
+    // {
+    //     println!("before {:?}", normalised_novelty_history[0]);
+    //     println!("beat! {:?}", normalised_novelty_history[1]);
+    //     println!("after {:?}", normalised_novelty_history[2]);
+    // }
 
     //remove unneeded history
     novelty_history.pop_back();
+}
 
-    // TODO: Draw novelty curve
-    // TODO: Draw normalised novelty curve
-    // TODO: DRAW THE NOVELTY CURVE BEFORE CONTINING
+//TODO: return meshes that need to be removed 
+fn draw_curve(novelty_curve: &mut VecDeque<f64>, normalised_novelty_curve: &mut VecDeque<f64>, win: &mut three::window::Window, garbage_collection: &mut Vec<three::Mesh>) {
+    let curve = normalised_novelty_curve; 
+
+    for (index, novelty_point) in curve.iter().enumerate() {
+        if index == 0 {
+            continue;
+        }
+
+        let novelty_curve_len = curve.len() as f32; 
+        let previous_index = (index - 1) as f32;
+        let previous_x = ((previous_index / novelty_curve_len) * 3.0) - 1.5; 
+        let previous_y = curve[index - 1] as f32 / 100.0; 
+        let x = (((index as f32) / novelty_curve_len) * 3.0) - 1.5;
+        let y = *novelty_point as f32 / 100.0; 
+
+        //x from left to right is -1.5 to 1.5
+        //y from bottom to top is 0.0 to 1.0
+        let geometry = three::Geometry::with_vertices(vec![
+            [previous_x, previous_y - 0.5, 0.0].into(),
+            [x, y - 0.5, 0.0].into()
+        ]);
+
+        let material = three::material::Line {
+            color: 0xFFFFFF,
+        };
+
+        let mesh = win.factory.mesh(geometry, material);
+        win.scene.add(&mesh); 
+        garbage_collection.push(mesh); 
+    }
+}
+
+fn remove_lines(win: &mut three::window::Window, garbage_collection: &mut Vec<three::Mesh>) {
+    for mesh in garbage_collection {
+        win.scene.remove(&mesh); 
+    }
 }
