@@ -9,3 +9,4 @@ portaudio = "0.7.0"
 three = "0.4.0"
 cgmath = "0.17.0"
 mint = "0.5.1"
+meyda = { git = "https://github.com/meyda/meyda-rs" }
