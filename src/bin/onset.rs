@@ -73,7 +73,7 @@ fn main() {
 
     while win.update() {
         match receiver.try_recv() {
-            Ok(buffer) => log_onset(buffer, &mut history, &mut novelty_history, &mut normalised_novelty_history), 
+            Ok(buffer) => calculate_novelty_curve(buffer, &mut history, &mut novelty_history, &mut normalised_novelty_history), 
             Err(_err) => ()
         }
         draw_curve(&mut novelty_history, &mut normalised_novelty_history, &mut win, &mut garbage_collection);
@@ -83,7 +83,7 @@ fn main() {
     }  
 }
 
-fn log_onset(buffer: &[f32], history: &mut VecDeque<Vec<f64>>, novelty_history: &mut VecDeque<f64>, normalised_novelty_history: &mut VecDeque<f64>) {
+fn calculate_novelty_curve(buffer: &[f32], history: &mut VecDeque<Vec<f64>>, novelty_history: &mut VecDeque<f64>, normalised_novelty_history: &mut VecDeque<f64>) {
     let samples: Vec<f64> = buffer.to_vec().into_iter().map(|sample| sample as f64).collect(); 
     //Fourier Transform
     let spectrum = meyda::get_amp_spectrum(&samples);
@@ -123,28 +123,19 @@ fn log_onset(buffer: &[f32], history: &mut VecDeque<Vec<f64>>, novelty_history: 
 
     let local_average = novelty_history.iter().fold(0.0, |sum, novelty_point| sum + novelty_point) / (novelty_history.len() as f64);
     let novelty_history_loop = novelty_history.clone(); //this is a memory hack and should be fixed dureing refactor
+    //instead of picking peaks I just use a treshold
+    let treshold = 0.0; 
 
     normalised_novelty_history.clear();
     for novelty_point in novelty_history_loop {
         let candidate = novelty_point - local_average;
-        if candidate < 0.0 {
+        if candidate < treshold {
             normalised_novelty_history.push_front(0.0);
             continue;
         }
 
         normalised_novelty_history.push_front(candidate);
     }
-
-    //TODO: neglect peaks if they're part of a downward trend in peaks
-    //peak picking
-    // if normalised_novelty_history[1] > normalised_novelty_history[0] 
-    // && normalised_novelty_history[1] > normalised_novelty_history[2] 
-    // && normalised_novelty_history[1] > 50.0 //TODO: play around with this treshold
-    // {
-    //     println!("before {:?}", normalised_novelty_history[0]);
-    //     println!("beat! {:?}", normalised_novelty_history[1]);
-    //     println!("after {:?}", normalised_novelty_history[2]);
-    // }
 
     //remove unneeded history
     novelty_history.pop_back();
